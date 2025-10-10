@@ -1,0 +1,5 @@
+build/
+*.o
+kvstore
+*.aof
+.DS_Store
