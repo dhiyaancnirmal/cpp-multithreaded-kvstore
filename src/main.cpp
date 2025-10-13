@@ -4,11 +4,18 @@
 #include <unistd.h>
 #include <unordered_map>
 #include <string>
-#include <cstring>
+#include <mutex>
+
+std::unordered_map<std::string, std::string> store;
+std::mutex store_mutex;
+
+void handle_client(int client_fd) {
+    uint8_t buffer[16];
+    recv(client_fd, buffer, 16, 0);
+    close(client_fd);
+}
 
 int main() {
-    std::unordered_map<std::string, std::string> store;
-
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -21,19 +28,14 @@ int main() {
     bind(server_fd, (sockaddr*)&addr, sizeof(addr));
     listen(server_fd, 10);
 
-    std::cout << "accepting connections" << std::endl;
+    std::cout << "server ready" << std::endl;
 
     while (true) {
         int client_fd = accept(server_fd, nullptr, nullptr);
-        if (client_fd < 0) continue;
-
-        uint8_t buffer[16];
-        recv(client_fd, buffer, 16, 0);
-
-        close(client_fd);
-        break;
+        if (client_fd >= 0) {
+            handle_client(client_fd);
+        }
     }
 
-    close(server_fd);
     return 0;
 }
