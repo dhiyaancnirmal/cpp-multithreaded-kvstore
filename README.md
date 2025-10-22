@@ -89,16 +89,6 @@ Defaults to port `7878` and AOF file `store.aof`.
 - Thread pool prevents connection exhaustion
 - AOF write synchronization ensures durability
 
-## Development Timeline Simulation
-
-Run the included script to simulate a realistic development history:
-
-```bash
-./git_history.sh
-```
-
-This creates a commit timeline spanning October 10-21, 2025, with a development break from October 14-18, demonstrating incremental feature development.
-
 ## Project Structure
 
 ```
