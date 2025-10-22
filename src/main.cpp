@@ -1,40 +1,64 @@
 #include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
-#include <unordered_map>
-#include <string>
-#include <mutex>
+#include <csignal>
+#include <atomic>
+#include <memory>
+#include "kv_store.hpp"
+#include "persistence.hpp"
+#include "networking.hpp"
 
-std::unordered_map<std::string, std::string> store;
-std::mutex store_mutex;
+std::atomic<bool> g_shutdown_requested{false};
+kvstore::Server* g_server = nullptr;
 
-void handle_client(int client_fd) {
-    uint8_t buffer[16];
-    recv(client_fd, buffer, 16, 0);
-    close(client_fd);
+void signal_handler(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        g_shutdown_requested.store(true);
+        if (g_server) {
+            g_server->stop();
+        }
+    }
 }
 
-int main() {
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+int main(int argc, char* argv[]) {
+    int port = 7878;
+    std::string aof_file = "store.aof";
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(7878);
+    if (argc > 1) {
+        port = std::stoi(argv[1]);
+    }
+    if (argc > 2) {
+        aof_file = argv[2];
+    }
 
-    bind(server_fd, (sockaddr*)&addr, sizeof(addr));
-    listen(server_fd, 10);
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
 
-    std::cout << "server ready" << std::endl;
+    try {
+        kvstore::ShardedHashMap store;
 
-    while (true) {
-        int client_fd = accept(server_fd, nullptr, nullptr);
-        if (client_fd >= 0) {
-            handle_client(client_fd);
+        std::cout << "Recovering from AOF: " << aof_file << std::endl;
+        kvstore::AOFReader reader(aof_file);
+        if (!reader.recover(store)) {
+            std::cerr << "AOF recovery failed, starting with empty store" << std::endl;
+        } else {
+            std::cout << "Recovered " << store.total_size() << " keys" << std::endl;
         }
+
+        kvstore::AOFWriter aof_writer(aof_file);
+        kvstore::Server server(port, store, aof_writer);
+        g_server = &server;
+
+        std::cout << "Starting server on port " << port << std::endl;
+        server.start();
+
+        std::cout << "Server listening, press Ctrl+C to stop" << std::endl;
+        server.accept_loop();
+
+        std::cout << "Shutting down gracefully..." << std::endl;
+        aof_writer.flush();
+
+    } catch (const std::exception& e) {
+        std::cerr << "Fatal error: " << e.what() << std::endl;
+        return 1;
     }
 
     return 0;
